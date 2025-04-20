@@ -75,6 +75,9 @@ export default function ImportHistoryModal({ visible, onClose, history, onAdd })
     }
   };
 
+  // Đảm bảo history luôn là mảng
+  const safeHistory = Array.isArray(history) ? history : [];
+
   return (
     <Modal visible={visible} animationType="slide">
       <View style={{ flex: 1, backgroundColor: '#232338', padding: 16 }}>
@@ -118,7 +121,7 @@ export default function ImportHistoryModal({ visible, onClose, history, onAdd })
           </ScrollView>
         )}
         <FlatList
-          data={history}
+          data={safeHistory}
           keyExtractor={item => item.id + ''}
           style={{ flex: 1 }}
           renderItem={({ item }) => (
@@ -153,7 +156,7 @@ export default function ImportHistoryModal({ visible, onClose, history, onAdd })
               </TouchableOpacity>
               <Text style={{ color: '#ffe46b', fontWeight: 'bold', fontSize: 22, marginTop: 10, marginBottom: 10 }}>Chi tiết nhập: {selectedProduct}</Text>
               <FlatList
-                data={history.filter(h => h.productName === selectedProduct)}
+                data={safeHistory.filter(h => h.productName === selectedProduct)}
                 keyExtractor={item => item.id + ''}
                 renderItem={({ item }) => (
                   <View style={styles.item}>

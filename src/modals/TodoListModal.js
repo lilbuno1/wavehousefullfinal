@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Modal, View, Text, TouchableOpacity, FlatList, TextInput, StyleSheet, ScrollView, CheckBox, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { Modal, View, Text, TouchableOpacity, FlatList, TextInput, StyleSheet, ScrollView, Platform } from 'react-native';
 
 // Helper to get 7 days from now (including today)
 function get7DayStrings() {
@@ -21,8 +21,22 @@ export default function TodoListModal({ visible, onClose, todos, setTodos }) {
 
   const days = get7DayStrings();
 
+  // Đảm bảo selectedDate được reset về hôm nay khi mở modal
+  useEffect(() => {
+    if (visible) setSelectedDate(new Date().toISOString().slice(0, 10));
+  }, [visible]);
+
+  // Cập nhật todos trong setTodos và lưu luôn vào AsyncStorage
+  const updateTodos = (newTodos) => {
+    setTodos((old) => {
+      // Giữ nguyên tham chiếu nếu không đổi để tránh render lại không cần thiết
+      if (JSON.stringify(old) === JSON.stringify(newTodos)) return old;
+      return newTodos;
+    });
+  };
+
   // Filter tasks for selectedDate
-  const todayTasks = (todos[selectedDate] || []);
+  const todayTasks = (todos && todos[selectedDate]) ? todos[selectedDate] : [];
 
   const handleAdd = () => {
     if (!newTask.trim()) return;
@@ -30,13 +44,19 @@ export default function TodoListModal({ visible, onClose, todos, setTodos }) {
     if (apply7) {
       days.forEach(day => {
         if (!newTodos[day]) newTodos[day] = [];
-        newTodos[day].push({ id: Date.now() + Math.random(), text: newTask, done: false });
+        newTodos[day] = [
+          ...newTodos[day],
+          { id: Date.now() + Math.random(), text: newTask, done: false }
+        ];
       });
     } else {
       if (!newTodos[selectedDate]) newTodos[selectedDate] = [];
-      newTodos[selectedDate].push({ id: Date.now() + Math.random(), text: newTask, done: false });
+      newTodos[selectedDate] = [
+        ...newTodos[selectedDate],
+        { id: Date.now() + Math.random(), text: newTask, done: false }
+      ];
     }
-    setTodos(newTodos);
+    updateTodos(newTodos);
     setNewTask('');
     setApply7(false);
     setShowAdd(false);
@@ -47,13 +67,13 @@ export default function TodoListModal({ visible, onClose, todos, setTodos }) {
     newTodos[selectedDate] = newTodos[selectedDate].map(task =>
       task.id === id ? { ...task, done: !task.done } : task
     );
-    setTodos(newTodos);
+    updateTodos(newTodos);
   };
 
   const handleDelete = (id) => {
     let newTodos = { ...todos };
     newTodos[selectedDate] = newTodos[selectedDate].filter(task => task.id !== id);
-    setTodos(newTodos);
+    updateTodos(newTodos);
   };
 
   return (
@@ -89,17 +109,9 @@ export default function TodoListModal({ visible, onClose, todos, setTodos }) {
               placeholderTextColor="#aaa"
             />
             <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8 }}>
-              {Platform.OS === "ios" ? (
-                <CheckBox
-                  value={apply7}
-                  onValueChange={setApply7}
-                  style={{ marginRight: 8 }}
-                />
-              ) : (
-                <TouchableOpacity onPress={() => setApply7(!apply7)} style={{ marginRight: 8 }}>
-                  <View style={[styles.checkbox, apply7 && styles.checkboxChecked]}>{apply7 ? <Text style={{color:"#181829"}}>✓</Text> : null}</View>
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity onPress={() => setApply7(!apply7)} style={{ marginRight: 8 }}>
+                <View style={[styles.checkbox, apply7 && styles.checkboxChecked]}>{apply7 ? <Text style={{ color: "#181829" }}>✓</Text> : null}</View>
+              </TouchableOpacity>
               <Text style={{ color: "#ffe46b" }}>Áp dụng cho 7 ngày tiếp theo</Text>
             </View>
             <TouchableOpacity style={styles.addBtn} onPress={handleAdd}>

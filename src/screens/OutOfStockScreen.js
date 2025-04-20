@@ -1,51 +1,114 @@
 import React from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
-import { formatVNDCurrency } from '../utils/format';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
 
-export default function OutOfStockScreen({ products = [], onBack }) {
-  const data = Array.isArray(products) ? products.filter(item => item.outOfStock) : [];
+const { width } = Dimensions.get('window');
+const basePadding = Math.round(width * 0.04);
+const baseRadius = Math.round(width * 0.035);
 
-  if (data.length === 0) {
-    return (
-      <View style={styles.screen}>
-        <TouchableOpacity style={styles.backBtn} onPress={onBack}>
-          <Text style={styles.backTxt}>{'<'} Quay lại</Text>
-        </TouchableOpacity>
-        <View style={styles.emptyBox}>
-          <Text style={styles.emptyText}>Không có sản phẩm nào hết hàng.</Text>
-        </View>
-      </View>
-    );
-  }
+export default function OutOfStockScreen({ products, onBack, onRestore }) {
+  const outOfStockProducts = Array.isArray(products)
+    ? products.filter(p => p.outOfStock)
+    : [];
 
   return (
-    <View style={styles.screen}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack}>
-        <Text style={styles.backTxt}>{'<'} Quay lại</Text>
-      </TouchableOpacity>
+    <View style={styles.container}>
+      <View style={styles.headerRow}>
+        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+          <Text style={styles.backBtnTxt}>←</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Danh sách hết hàng</Text>
+        <View style={{ width: 40 }} />
+      </View>
       <FlatList
-        data={data}
-        keyExtractor={item => '' + item.id}
+        data={outOfStockProducts}
+        keyExtractor={item => item.id + ''}
         renderItem={({ item }) => (
-          <View style={styles.item}>
-            <Text style={styles.name}>{item.name}</Text>
-            <Text style={styles.price}>{formatVNDCurrency(item.price)}</Text>
-            <Text style={styles.spec}>{item.spec}</Text>
+          <View style={styles.productItem}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.productName}>{item.name}</Text>
+              {item.spec ? <Text style={styles.productSpec}>{item.spec}</Text> : null}
+            </View>
+            <TouchableOpacity
+              style={styles.restoreBtn}
+              onPress={() => onRestore && onRestore(item)}
+            >
+              <Text style={styles.restoreBtnTxt}>Phục hồi</Text>
+            </TouchableOpacity>
           </View>
         )}
+        ListEmptyComponent={
+          <Text style={{ color: '#aaa', textAlign: 'center', marginTop: 32 }}>
+            Không có sản phẩm nào hết hàng.
+          </Text>
+        }
+        contentContainerStyle={{ paddingBottom: 24 }}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#181829' },
-  backBtn: { marginTop: 20, marginBottom: 10, marginLeft: 18, alignSelf: 'flex-start', backgroundColor: '#ffe46b', borderRadius: 8, paddingHorizontal: 18, paddingVertical: 7 },
-  backTxt: { color: '#181829', fontSize: 15, fontWeight: 'bold' },
-  item: { backgroundColor: '#232338', marginBottom: 10, borderRadius: 8, padding: 15, marginHorizontal: 12 },
-  name: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  price: { color: '#ff3c6f', fontWeight: 'bold', fontSize: 16, marginTop: 2 },
-  spec: { color: '#ffe46b', fontSize: 13, marginTop: 2 },
-  emptyBox: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 },
-  emptyText: { color: '#fff', fontSize: 16, opacity: 0.7 }
+  container: {
+    flex: 1,
+    backgroundColor: '#181829',
+    paddingTop: basePadding,
+    paddingHorizontal: basePadding,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: basePadding * 0.7,
+    justifyContent: 'space-between',
+  },
+  backBtn: {
+    backgroundColor: '#39ff14',
+    borderRadius: baseRadius,
+    paddingHorizontal: basePadding * 0.7,
+    paddingVertical: basePadding / 3,
+  },
+  backBtnTxt: {
+    color: '#181829',
+    fontWeight: 'bold',
+    fontSize: Math.round(width * 0.05),
+  },
+  headerTitle: {
+    color: '#ffe46b',
+    fontWeight: 'bold',
+    fontSize: Math.round(width * 0.06),
+    flex: 1,
+    textAlign: 'center',
+  },
+  productItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#232338',
+    borderRadius: baseRadius,
+    padding: basePadding * 0.8,
+    marginBottom: basePadding * 0.5,
+    elevation: 2,
+  },
+  productName: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: Math.round(width * 0.048),
+  },
+  productSpec: {
+    color: '#aaa',
+    fontSize: Math.round(width * 0.038),
+    marginTop: 2,
+  },
+  restoreBtn: {
+    backgroundColor: '#39ff14',
+    borderRadius: baseRadius,
+    paddingHorizontal: basePadding,
+    paddingVertical: basePadding * 0.4,
+    marginLeft: basePadding / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  restoreBtnTxt: {
+    color: '#181829',
+    fontWeight: 'bold',
+    fontSize: Math.round(width * 0.045),
+  },
 });

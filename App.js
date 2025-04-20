@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, ActivityIndicator, Dimensions, Alert, SafeAreaView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import * as DocumentPicker from 'expo-document-picker';
 import * as XLSX from 'xlsx';
+import { Ionicons } from '@expo/vector-icons';
 
 import ProductListScreen from './src/screens/ProductListScreen';
 import OutOfStockScreen from './src/screens/OutOfStockScreen';
@@ -16,6 +17,20 @@ import CalculatorModal from './src/modals/CalculatorModal';
 import ActivityLogModal from './src/modals/ActivityLogModal';
 import ImportHistoryModal from './src/modals/ImportHistoryModal';
 import TodoListModal from './src/modals/TodoListModal';
+import BankAccountsModal from './src/modals/BankAccountsModal';
+import AddBankAccountModal from './src/modals/AddBankAccountModal';
+
+// Responsive constants
+const { width } = Dimensions.get('window');
+const basePadding = Math.round(width * 0.04);
+const baseRadius = Math.round(width * 0.035);
+const cardShadow = {
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.12,
+  shadowRadius: 12,
+  elevation: 7,
+};
 
 function getNowString() {
   const now = new Date();
@@ -73,6 +88,60 @@ export default function App() {
   const [todos, setTodos] = useState({});
 
   const [dateString, setDateString] = useState('');
+  const [currentTime, setCurrentTime] = useState(() => {
+    const now = new Date();
+    return now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  });
+
+  // Bank accounts state
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [showBankModal, setShowBankModal] = useState(false);
+  const [addBankModal, setAddBankModal] = useState(false);
+
+  // Đọc dữ liệu khi mở app
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await AsyncStorage.getItem('products');
+        let parsed = [];
+        if (data) {
+          const tmp = JSON.parse(data);
+          parsed = Array.isArray(tmp) ? tmp : [];
+        }
+        setProducts(parsed);
+
+        const log = await AsyncStorage.getItem('activityLog');
+        if (log) setActivityLog(JSON.parse(log));
+        const importHis = await AsyncStorage.getItem('importHistory');
+        if (importHis) {
+          const tmp = JSON.parse(importHis);
+          setImportHistory(Array.isArray(tmp) ? tmp : []);
+        }
+        const todosStr = await AsyncStorage.getItem('todos');
+        if (todosStr) {
+          let tmp = JSON.parse(todosStr);
+          setTodos(tmp && typeof tmp === 'object' && !Array.isArray(tmp) ? tmp : {});
+        }
+        const bankStr = await AsyncStorage.getItem('bankAccounts');
+        if (bankStr) setBankAccounts(JSON.parse(bankStr));
+      } catch (e) {}
+    })();
+  }, []);
+
+  // Luôn lưu todos vào AsyncStorage khi thay đổi
+  useEffect(() => {
+    if (!todos || Array.isArray(todos) || typeof todos !== 'object') {
+      AsyncStorage.setItem('todos', JSON.stringify({}));
+    } else {
+      AsyncStorage.setItem('todos', JSON.stringify(todos));
+    }
+  }, [todos]);
+
+  // Luôn lưu bankAccounts
+  useEffect(() => {
+    AsyncStorage.setItem('bankAccounts', JSON.stringify(bankAccounts));
+  }, [bankAccounts]);
+
   useEffect(() => {
     function getVNDayString() {
       const now = new Date();
@@ -89,27 +158,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const data = await AsyncStorage.getItem('products');
-        if (data) setProducts(JSON.parse(data));
-        const log = await AsyncStorage.getItem('activityLog');
-        if (log) setActivityLog(JSON.parse(log));
-        const importHis = await AsyncStorage.getItem('importHistory');
-        if (importHis) setImportHistory(JSON.parse(importHis));
-        const todosStr = await AsyncStorage.getItem('todos');
-        if (todosStr) setTodos(JSON.parse(todosStr));
-      } catch (e) {}
-    })();
-  }, []);
-
-  useEffect(() => {
-    AsyncStorage.setItem('todos', JSON.stringify(todos));
-  }, [todos]);
-
-  useEffect(() => {
     AsyncStorage.setItem('products', JSON.stringify(products));
   }, [products]);
+
+  // Đồng hồ nhỏ cập nhật mỗi giây
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      setCurrentTime(now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const persist = async (newProducts, newLog) => {
     setProducts(newProducts);
@@ -129,256 +188,6 @@ export default function App() {
     const log = [{ text, time: getNowString() }, ...activityLog].slice(0, 100);
     setActivityLog(log);
     await AsyncStorage.setItem('activityLog', JSON.stringify(log));
-  };
-
-  // Excel Export
-  const handleExport = async () => {
-    try {
-      if (!products.length) {
-        Alert.alert('Thông báo', 'Không có sản phẩm để export!');
-        return;
-      }
-      setProgressing(true);
-      setProgressText('Đang xuất file Excel...');
-      const wsData = [
-        ["ID", "Tên sản phẩm", "Giá", "Quy cách", "Link ảnh", "Hết hàng", "Ưu tiên", "Bán chạy"],
-        ...products.map(p => [
-          p.id,
-          p.name,
-          formatVNDCurrency(p.price),
-          p.spec,
-          p.image,
-          p.outOfStock ? 'Có' : 'Không',
-          p.isFavorite ? 'Có' : 'Không',
-          p.isHot ? 'Có' : 'Không'
-        ])
-      ];
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      ws['!cols'] = [
-        { wch: 16 }, { wch: 25 }, { wch: 16 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 10 }, { wch: 10 }
-      ];
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "SanPham");
-      const wbout = XLSX.write(wb, { type: 'base64', bookType: "xlsx" });
-
-      setProgressText('Đang lưu file...');
-      const fileUri = FileSystem.cacheDirectory + `shino_products_${Date.now()}.xlsx`;
-      await FileSystem.writeAsStringAsync(fileUri, wbout, { encoding: FileSystem.EncodingType.Base64 });
-
-      setProgressText('Đang chia sẻ file...');
-      await Sharing.shareAsync(fileUri, { mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', dialogTitle: 'Chia sẻ file Excel sản phẩm' });
-
-      setProgressing(false);
-      setProgressText('');
-      Alert.alert('Thành công', `Export thành công ${products.length} sản phẩm!`);
-      addLog(`Export Excel thành công (${products.length} sản phẩm)`);
-    } catch (e) {
-      setProgressing(false);
-      setProgressText('');
-      Alert.alert('Lỗi', 'Không thể export file Excel.');
-    }
-  };
-
-  // Excel Import
-  const handleImport = async () => {
-    try {
-      setProgressing(true);
-      setProgressText('Đang chọn file Excel...');
-      const result = await DocumentPicker.getDocumentAsync({
-        type: [
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'application/vnd.ms-excel'
-        ],
-        copyToCacheDirectory: true
-      });
-      let fileUri;
-      if (result.assets && result.assets.length > 0) {
-        fileUri = result.assets[0].uri;
-      } else if (result.uri) {
-        fileUri = result.uri;
-      } else {
-        setProgressing(false);
-        setProgressText('');
-        setTimeout(() => {
-          Alert.alert('Thông báo', 'Bạn đã huỷ hoặc không chọn file!');
-        }, 300);
-        return;
-      }
-      setProgressText('Đang đọc file...');
-      const bstr = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
-      setProgressText('Đang xử lý dữ liệu...');
-      const workbook = XLSX.read(bstr, { type: "base64" });
-      const wsname = workbook.SheetNames[0];
-      const ws = workbook.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
-
-      let headerRow = 0;
-      while (
-        headerRow < data.length &&
-        (!data[headerRow] || data[headerRow].filter(x => x).length < 2)
-      ) headerRow++;
-      if (headerRow >= data.length) throw new Error("File không hợp lệ");
-
-      const header = data[headerRow].map(h => String(h).toLowerCase().trim());
-      const idx = {
-        id: header.findIndex(h => h === 'id'),
-        name: header.findIndex(h => h.includes('tên')),
-        price: header.findIndex(h => h.includes('giá')),
-        spec: header.findIndex(h => h.includes('quy cách') || h === 'quycach'),
-        image: header.findIndex(h => h.includes('ảnh') || h.includes('img')),
-        outOfStock: header.findIndex(h => h.includes('hết hàng') || h === 'hethang'),
-        isFavorite: header.findIndex(h => h.includes('ưu tiên')),
-        isHot: header.findIndex(h => h.includes('bán chạy')),
-      };
-
-      let imported = [];
-      for (let i = headerRow + 1; i < data.length; ++i) {
-        const row = data[i];
-        if (!row || row.length < 2) continue;
-        imported.push({
-          id: idx.id >= 0 ? row[idx.id] : Date.now() + i,
-          name: idx.name >= 0 ? row[idx.name] || '' : '',
-          price: idx.price >= 0 ? Number(String(row[idx.price]).replace(/\D/g, '')) || 0 : 0,
-          spec: idx.spec >= 0 ? row[idx.spec] || '' : '',
-          image: idx.image >= 0 ? row[idx.image] || '' : '',
-          outOfStock: idx.outOfStock >= 0 ? (String(row[idx.outOfStock]).toLowerCase().includes('có') || row[idx.outOfStock] === 1) : false,
-          isFavorite: idx.isFavorite >= 0 ? (String(row[idx.isFavorite]).toLowerCase().includes('có') || row[idx.isFavorite] === 1) : false,
-          isHot: idx.isHot >= 0 ? (String(row[idx.isHot]).toLowerCase().includes('có') || row[idx.isHot] === 1) : false,
-        });
-      }
-      setProgressing(false);
-      setProgressText('');
-      if (imported.length) {
-        await persist(
-          imported,
-          [{ text: `Import Excel thành công (${imported.length} sản phẩm)`, time: getNowString() }, ...activityLog]
-        );
-        setTimeout(() => {
-          Alert.alert('Thành công', `Import thành công ${imported.length} sản phẩm!`);
-        }, 100);
-      } else {
-        Alert.alert('Lỗi', 'File không hợp lệ hoặc không có dữ liệu!');
-      }
-    } catch (e) {
-      setProgressing(false);
-      setProgressText('');
-      Alert.alert('Lỗi', 'Không thể import file Excel.\n' + e.message);
-    }
-  };
-
-  // Backup JSON (cả ảnh base64)
-  const handleBackupJson = async () => {
-    try {
-      setProgressing(true);
-      setProgressText('Đang chuẩn bị dữ liệu backup...');
-      const productsForBackup = await Promise.all(products.map(async p => {
-        let imageBase64 = '';
-        if (p.image && p.image.startsWith('file://')) {
-          try {
-            imageBase64 = await FileSystem.readAsStringAsync(p.image, { encoding: FileSystem.EncodingType.Base64 });
-          } catch (e) { imageBase64 = ''; }
-        }
-        return {
-          ...p,
-          imageBase64,
-        };
-      }));
-
-      const json = JSON.stringify(productsForBackup, null, 2);
-      const fileUri = FileSystem.cacheDirectory + 'products_backup_' + Date.now() + '.json';
-      await FileSystem.writeAsStringAsync(fileUri, json, { encoding: FileSystem.EncodingType.UTF8 });
-      setProgressText('Đang chia sẻ file backup...');
-      await Sharing.shareAsync(fileUri, { mimeType: 'application/json', dialogTitle: 'Chia sẻ file JSON backup' });
-      setProgressing(false);
-      setProgressText('');
-      Alert.alert('Thành công', 'Đã backup dữ liệu sản phẩm!');
-      addLog('Backup dữ liệu sản phẩm (JSON)');
-    } catch (e) {
-      setProgressing(false);
-      setProgressText('');
-      Alert.alert('Lỗi', 'Backup thất bại: ' + e.message);
-    }
-  };
-
-  // Restore JSON (cả ảnh base64)
-  const handleRestoreJson = async () => {
-    try {
-      setProgressing(true);
-      setProgressText('Đang chọn file backup...');
-      const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
-        copyToCacheDirectory: true
-      });
-      let fileUri;
-      if (result.assets && result.assets.length > 0) {
-        fileUri = result.assets[0].uri;
-      } else if (result.uri) {
-        fileUri = result.uri;
-      } else {
-        setProgressing(false);
-        setProgressText('');
-        setTimeout(() => {
-          Alert.alert('Thông báo', 'Bạn đã huỷ hoặc không chọn file backup nào!');
-        }, 300);
-        return;
-      }
-
-      setProgressText('Đang đọc file backup...');
-      let jsonString;
-      try {
-        jsonString = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.UTF8 });
-      } catch (e) {
-        setProgressing(false);
-        setTimeout(() => {
-          Alert.alert('Lỗi', 'Không đọc được file backup!\n' + e.message);
-        }, 300);
-        return;
-      }
-      let data;
-      try {
-        data = JSON.parse(jsonString);
-      } catch (e) {
-        setProgressing(false);
-        setTimeout(() => {
-          Alert.alert('Lỗi', 'File không đúng định dạng JSON!');
-        }, 300);
-        return;
-      }
-      setProgressText('Đang khôi phục dữ liệu...');
-      const restored = await Promise.all(data.map(async p => {
-        let image = p.image;
-        if (p.imageBase64 && p.imageBase64.length > 100) {
-          const fileName = `product_img_${Date.now()}_${Math.floor(Math.random() * 10000)}.jpg`;
-          const fileUri = FileSystem.cacheDirectory + fileName;
-          try {
-            await FileSystem.writeAsStringAsync(fileUri, p.imageBase64, { encoding: FileSystem.EncodingType.Base64 });
-            image = fileUri;
-          } catch (e) {
-            image = '';
-          }
-        }
-        return { ...p, image };
-      }));
-
-      await persist(
-        restored.map(({imageBase64, ...rest}) => rest),
-        [{ text: `Khôi phục backup JSON (${restored.length} sản phẩm)`, time: getNowString() }, ...activityLog]
-      );
-
-      setProgressing(false);
-      setProgressText('');
-      setSettingsVisible(false);
-      setTimeout(() => {
-        Alert.alert('Thành công', `Khôi phục thành công ${restored.length} sản phẩm!`);
-      }, 300);
-      addLog('Khôi phục dữ liệu sản phẩm từ backup JSON');
-    } catch (e) {
-      setProgressing(false);
-      setProgressText('');
-      setTimeout(() => {
-        Alert.alert('Lỗi', 'Không thể khôi phục file backup.\n' + e.message);
-      }, 300);
-    }
   };
 
   const handleAdd = async (prod) => {
@@ -457,165 +266,420 @@ export default function App() {
     addLog('Mở máy tính');
   };
 
+  // --------- Backup & Restore JSON ---------
+  const handleBackup = async () => {
+    try {
+      setProgressText('Đang tạo file backup...');
+      setProgressing(true);
+      const data = {
+        products,
+        activityLog,
+        importHistory,
+        todos,
+        bankAccounts,
+        backupAt: getNowString()
+      };
+      const json = JSON.stringify(data, null, 2);
+      const fileUri = FileSystem.cacheDirectory + `backup_shinovn_${Date.now()}.json`;
+      await FileSystem.writeAsStringAsync(fileUri, json, { encoding: FileSystem.EncodingType.UTF8 });
+      await Sharing.shareAsync(fileUri, { mimeType: 'application/json' });
+      addLog('Xuất file backup JSON');
+    } catch (e) {
+      Alert.alert('Lỗi', 'Không thể sao lưu dữ liệu.');
+    } finally {
+      setProgressing(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: true });
+      if (res.type !== 'success') return;
+      setProgressText('Đang khôi phục dữ liệu...');
+      setProgressing(true);
+      const content = await FileSystem.readAsStringAsync(res.uri, { encoding: FileSystem.EncodingType.UTF8 });
+      const data = JSON.parse(content);
+      if (data.products) setProducts(data.products);
+      if (data.activityLog) setActivityLog(data.activityLog);
+      if (data.importHistory) setImportHistory(data.importHistory);
+      if (data.todos) setTodos(data.todos);
+      if (data.bankAccounts) setBankAccounts(data.bankAccounts);
+      await AsyncStorage.setItem('products', JSON.stringify(data.products || []));
+      await AsyncStorage.setItem('activityLog', JSON.stringify(data.activityLog || []));
+      await AsyncStorage.setItem('importHistory', JSON.stringify(data.importHistory || []));
+      await AsyncStorage.setItem('todos', JSON.stringify(data.todos || {}));
+      await AsyncStorage.setItem('bankAccounts', JSON.stringify(data.bankAccounts || []));
+      addLog('Khôi phục dữ liệu từ backup JSON');
+      Alert.alert('Thành công', 'Khôi phục dữ liệu thành công!');
+    } catch (e) {
+      Alert.alert('Lỗi', 'Không thể khôi phục dữ liệu. File không hợp lệ!');
+    } finally {
+      setProgressing(false);
+    }
+  };
+
+  // --------- Export to Excel ---------
+  const handleExportExcel = async () => {
+    try {
+      setProgressText('Đang xuất file Excel...');
+      setProgressing(true);
+      // Chuẩn bị dữ liệu
+      const data = products.map(p => ({
+        'Tên sản phẩm': p.name,
+        'Giá': p.price,
+        'Quy cách': p.spec,
+        'Hết hàng': p.outOfStock ? 'X' : '',
+        'Ưu tiên': p.isFavorite ? 'X' : '',
+        'Bán chạy': p.isHot ? 'X' : '',
+        'Mã': p.id
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "SanPham");
+      const wbout = XLSX.write(wb, { type: 'base64', bookType: "xlsx" });
+      const fileUri = FileSystem.cacheDirectory + `products_shinovn_${Date.now()}.xlsx`;
+      await FileSystem.writeAsStringAsync(fileUri, wbout, { encoding: FileSystem.EncodingType.Base64 });
+      await Sharing.shareAsync(fileUri, { mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      addLog('Xuất file Excel');
+    } catch (e) {
+      Alert.alert('Lỗi', 'Không thể xuất file Excel.');
+    } finally {
+      setProgressing(false);
+    }
+  };
+
+  // --------- Import from Excel ---------
+  const handleImportExcel = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({ type: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'], copyToCacheDirectory: true });
+      if (res.type !== 'success') return;
+      setProgressText('Đang nhập dữ liệu Excel...');
+      setProgressing(true);
+      const b64 = await FileSystem.readAsStringAsync(res.uri, { encoding: FileSystem.EncodingType.Base64 });
+      const wb = XLSX.read(b64, { type: 'base64' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(ws);
+      // Nhập dữ liệu, giữ lại id cũ nếu có, nếu không thì tạo id mới
+      const imported = data.map(row => ({
+        id: row['Mã'] || String(Date.now() + Math.random()),
+        name: row['Tên sản phẩm'] || '',
+        price: row['Giá'] || '',
+        spec: row['Quy cách'] || '',
+        outOfStock: !!row['Hết hàng'],
+        isFavorite: !!row['Ưu tiên'],
+        isHot: !!row['Bán chạy'],
+        image: ''
+      }));
+      setProducts(imported);
+      await AsyncStorage.setItem('products', JSON.stringify(imported));
+      addLog('Nhập sản phẩm từ Excel');
+      Alert.alert('Thành công', 'Nhập dữ liệu từ Excel thành công!');
+    } catch (e) {
+      Alert.alert('Lỗi', 'Không thể nhập file Excel hoặc định dạng không hợp lệ!');
+    } finally {
+      setProgressing(false);
+    }
+  };
+
+  // Thêm tài khoản
+  const handleAddBankAccount = (account) => {
+    setBankAccounts([account, ...bankAccounts]);
+  };
+
   return (
-    <View style={{ flex: 1, backgroundColor: '#181829' }}>
-      <StatusBar barStyle="light-content" />
-      {progressing && (
-        <View style={styles.progressOverlay}>
-          <View style={styles.progressBox}>
-            <ActivityIndicator size="large" color="#39ff14" />
-            <Text style={styles.progressText}>{progressText || "Đang xử lý..."}</Text>
+    <SafeAreaView style={styles.safeContainer}>
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="#181829"
+        translucent={false}
+      />
+      <View style={styles.container}>
+        {/* Nút QR nhỏ trên góc trái */}
+        <TouchableOpacity
+          style={{
+            position: 'absolute', left: 12, top: 16, zIndex: 99,
+            backgroundColor: '#ffe46b', borderRadius: 99, width: 42, height: 42, justifyContent: 'center', alignItems: 'center', ...cardShadow
+          }}
+          onPress={() => setShowBankModal(true)}
+        >
+          <Ionicons name="qr-code" size={26} color="#181829" />
+        </TouchableOpacity>
+
+        {progressing && (
+          <View style={styles.progressOverlay}>
+            <View style={styles.progressBox}>
+              <ActivityIndicator size="large" color="#39ff14" />
+              <Text style={styles.progressText}>{progressText || "Đang xử lý..."}</Text>
+            </View>
+          </View>
+        )}
+
+        <View style={styles.neonHeader}>
+          <Text style={styles.neonTitle}>ShinoVN App!</Text>
+          <Text style={styles.neonDate}>{dateString}</Text>
+          <View style={styles.clockBelowDate}>
+            <Ionicons name="time-outline" size={16} color="#ffe46b" style={{marginRight: 2}} />
+            <Text style={styles.clockText}>{currentTime}</Text>
           </View>
         </View>
-      )}
 
-      <View style={styles.neonHeader}>
-        <Text style={styles.neonTitle}>ShinoVN App!</Text>
-        <Text style={styles.neonDate}>{dateString}</Text>
-      </View>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.headerLSBtn} onPress={() => setImportHistoryModal(true)}>
-          <Text style={styles.headerBtnTxt}>LS nhập</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Quản lý Sản phẩm</Text>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => setSettingsVisible(true)}>
-          <Text style={styles.headerBtnTxt}>☰</Text>
-        </TouchableOpacity>
-      </View>
-
-      {screen === 'home' && (
-        <>
-          <ProductListScreen
-            products={products}
-            onBack={null}
-            onPressItem={handlePressItem}
-            onEditProduct={handleEditProduct}
-            onToggleOutOfStock={handleToggleOutOfStock}
-            onToggleFavorite={handleToggleFavorite}
-            onToggleHot={handleToggleHot}
-          />
-          <View style={styles.bottomBar}>
-            <TouchableOpacity style={styles.addBtn} onPress={() => setAddModal(true)}>
-              <Text style={styles.addBtnTxt}>+ Thêm sản phẩm</Text>
+        <View style={styles.card}>
+          <View style={styles.headerRow}>
+            <TouchableOpacity style={styles.headerLSBtn} onPress={() => setImportHistoryModal(true)}>
+              <Text style={styles.headerBtnTxt}>LS nhập</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.outStockBtn} onPress={() => setScreen('outofstock')}>
-              <Text style={styles.outStockBtnTxt}>Danh sách hết hàng</Text>
+            <Text style={styles.headerTitle}>Quản lý Sản phẩm</Text>
+            <TouchableOpacity style={styles.headerBtn} onPress={() => setSettingsVisible(true)}>
+              <Text style={styles.headerBtnTxt}>☰</Text>
             </TouchableOpacity>
           </View>
-        </>
-      )}
+          {screen === 'home' && (
+            <>
+              <View style={styles.listWrapper}>
+                <ProductListScreen
+                  products={Array.isArray(products) ? products : []}
+                  onBack={null}
+                  onPressItem={handlePressItem}
+                  onEditProduct={handleEditProduct}
+                  onToggleOutOfStock={handleToggleOutOfStock}
+                  onToggleFavorite={handleToggleFavorite}
+                  onToggleHot={handleToggleHot}
+                />
+              </View>
+              <View style={styles.actionBar}>
+                <TouchableOpacity style={styles.actionBtnLeft} onPress={() => setAddModal(true)}>
+                  <Text style={styles.actionBtnTxtSmall}>+ Thêm sản phẩm</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.actionBtnRight} onPress={() => setScreen('outofstock')}>
+                  <Text style={styles.actionBtnTxtSmall}>DS hết hàng</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+          {screen === 'outofstock' && (
+            <OutOfStockScreen
+              products={Array.isArray(products) ? products : []}
+              onBack={() => setScreen('home')}
+              onRestore={handleToggleOutOfStock}
+            />
+          )}
+        </View>
 
-      {screen === 'outofstock' && (
-        <OutOfStockScreen
-          products={products}
-          onBack={() => setScreen('home')}
+        {/* Các modal giữ nguyên */}
+        <AddProductModal
+          visible={addModal}
+          onClose={() => setAddModal(false)}
+          onAdd={handleAdd}
         />
-      )}
-
-      <AddProductModal
-        visible={addModal}
-        onClose={() => setAddModal(false)}
-        onAdd={handleAdd}
-      />
-      <EditProductModal
-        item={editingProduct}
-        onClose={() => { setEditModal(false); setEditingProduct(null); }}
-        onSave={handleEdit}
-        onDelete={handleDelete}
-      />
-      <ProductDetailModal
-        visible={detailModal}
-        item={selectedProduct}
-        onClose={() => setDetailModal(false)}
-      />
-      <SettingsModal
-        visible={settingsVisible}
-        onClose={() => setSettingsVisible(false)}
-        products={products}
-        setProducts={persist}
-        onOpenCalculator={handleOpenCalculator}
-        onExport={handleExport}
-        onImport={handleImport}
-        onBackup={handleBackupJson}
-        onRestore={handleRestoreJson}
-        onOpenLog={() => { setSettingsVisible(false); setTimeout(() => setLogModalVisible(true), 200); }}
-        onOpenTodo={() => setTodoModal(true)}
-      />
-      <CalculatorModal
-        visible={calculatorVisible}
-        onClose={() => setCalculatorVisible(false)}
-      />
-      <ActivityLogModal
-        visible={logModalVisible}
-        onClose={() => setLogModalVisible(false)}
-        activityLog={activityLog}
-      />
-      <ImportHistoryModal
-        visible={importHistoryModal}
-        onClose={() => setImportHistoryModal(false)}
-        history={importHistory}
-        onAdd={item => {
-          const newHistory = [item, ...importHistory];
-          saveImportHistory(newHistory);
-          addLog(`Nhập hàng: ${item.productName} | SL: ${item.quantity} | Giá: ${item.price} | Quy cách: ${item.spec || ''}`);
-        }}
-      />
-      <TodoListModal
-        visible={todoModal}
-        onClose={() => setTodoModal(false)}
-        todos={todos}
-        setTodos={setTodos}
-      />
-    </View>
+        <EditProductModal
+          item={editingProduct}
+          onClose={() => { setEditModal(false); setEditingProduct(null); }}
+          onSave={handleEdit}
+          onDelete={handleDelete}
+        />
+        <ProductDetailModal
+          visible={detailModal}
+          item={selectedProduct}
+          onClose={() => setDetailModal(false)}
+        />
+        <SettingsModal
+          visible={settingsVisible}
+          onClose={() => setSettingsVisible(false)}
+          products={Array.isArray(products) ? products : []}
+          setProducts={persist}
+          onOpenCalculator={handleOpenCalculator}
+          onOpenLog={() => { setSettingsVisible(false); setTimeout(() => setLogModalVisible(true), 200); }}
+          onOpenTodo={() => setTodoModal(true)}
+          onExport={handleExportExcel}
+          onImport={handleImportExcel}
+          onBackup={handleBackup}
+          onRestore={handleRestore}
+          onBankAccount={() => { setSettingsVisible(false); setTimeout(() => setAddBankModal(true), 220); }}
+        />
+        <BankAccountsModal
+          visible={showBankModal}
+          accounts={bankAccounts.slice(0, 3)}
+          onClose={() => setShowBankModal(false)}
+        />
+        <AddBankAccountModal
+          visible={addBankModal}
+          onClose={() => setAddBankModal(false)}
+          onSave={handleAddBankAccount}
+        />
+        <CalculatorModal
+          visible={calculatorVisible}
+          onClose={() => setCalculatorVisible(false)}
+        />
+        <ActivityLogModal
+          visible={logModalVisible}
+          onClose={() => setLogModalVisible(false)}
+          activityLog={activityLog}
+        />
+        <ImportHistoryModal
+          visible={importHistoryModal}
+          onClose={() => setImportHistoryModal(false)}
+          history={Array.isArray(importHistory) ? importHistory : []}
+          onAdd={item => {
+            const newHistory = [item, ...(Array.isArray(importHistory) ? importHistory : [])];
+            saveImportHistory(newHistory);
+            addLog(`Nhập hàng: ${item.productName} | SL: ${item.quantity} | Giá: ${item.price} | Quy cách: ${item.spec || ''}`);
+          }}
+        />
+        <TodoListModal
+          visible={todoModal}
+          onClose={() => setTodoModal(false)}
+          todos={todos}
+          setTodos={setTodos}
+        />
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  neonHeader: {
-    paddingTop: 38,
-    paddingBottom: 8,
+  safeContainer: {
+    flex: 1,
+    backgroundColor: '#181829',
+  },
+  container: {
+    flex: 1,
     backgroundColor: '#181829',
     alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: '#ff003c99',
-    shadowColor: '#ff003c',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 16,
-    elevation: 10
+    justifyContent: 'flex-start',
+    paddingBottom: basePadding,
+    minHeight: '100%',
+  },
+  neonHeader: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: basePadding * 0.65,
   },
   neonTitle: {
     color: '#ff003c',
-    fontSize: 28,
+    fontSize: Math.round(width * 0.08),
     fontWeight: 'bold',
     textShadowColor: '#fff',
     textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 18,
+    textShadowRadius: 16,
     letterSpacing: 1.5,
     textAlign: 'center',
-    textShadow: '0 0 22px #ff003c, 0 0 18px #fff',
+    marginBottom: 2,
   },
   neonDate: {
     color: '#ffe46b',
-    fontSize: 16,
+    fontSize: Math.round(width * 0.045),
     fontWeight: 'bold',
-    marginTop: 4,
     textShadowColor: '#232338',
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 8,
     letterSpacing: 0.5,
     textAlign: 'center',
   },
-  header: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#232338', paddingHorizontal: 16, paddingVertical: 18, elevation: 8 },
-  headerTitle: { color: '#39ff14', fontWeight: 'bold', fontSize: 22, flex: 1, textAlign: 'center' },
-  headerBtn: { backgroundColor: '#39ff14', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 4 },
-  headerBtnTxt: { color: '#181829', fontWeight: 'bold', fontSize: 17 },
-  headerLSBtn: { backgroundColor: '#ffe46b', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 4, marginRight: 8 },
-  bottomBar: { flexDirection: 'row', justifyContent: 'space-between', padding: 14, backgroundColor: '#232338' },
-  addBtn: { backgroundColor: '#39ff14', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
-  addBtnTxt: { color: '#181829', fontWeight: 'bold', fontSize: 15 },
-  outStockBtn: { backgroundColor: '#ffe46b', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10 },
-  outStockBtnTxt: { color: '#181829', fontWeight: 'bold', fontSize: 15 },
+  clockBelowDate: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 1,
+    marginBottom: 8,
+    backgroundColor: '#232338',
+    borderRadius: 17,
+    paddingVertical: 3,
+    paddingHorizontal: 10,
+    minWidth: 74,
+  },
+  clockText: {
+    fontWeight: 'bold',
+    color: '#ffe46b',
+    fontSize: 15,
+    letterSpacing: 1,
+    textShadowColor: '#232338',
+    textShadowRadius: 6,
+    marginLeft: 1,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 500,
+    backgroundColor: '#232338',
+    borderRadius: baseRadius * 1.2,
+    ...cardShadow,
+    paddingHorizontal: basePadding,
+    paddingVertical: basePadding / 1.5,
+    marginBottom: basePadding / 2,
+    flexGrow: 1,
+    flexShrink: 1,
+    alignSelf: 'center',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: basePadding / 1.9,
+    justifyContent: 'space-between',
+  },
+  headerTitle: {
+    color: '#39ff14',
+    fontWeight: 'bold',
+    fontSize: Math.round(width * 0.055),
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerBtn: {
+    backgroundColor: '#39ff14',
+    borderRadius: baseRadius,
+    paddingHorizontal: basePadding,
+    paddingVertical: basePadding / 3,
+    marginLeft: basePadding / 2,
+  },
+  headerBtnTxt: {
+    color: '#181829',
+    fontWeight: 'bold',
+    fontSize: Math.round(width * 0.045),
+  },
+  headerLSBtn: {
+    backgroundColor: '#ffe46b',
+    borderRadius: baseRadius,
+    paddingHorizontal: basePadding,
+    paddingVertical: basePadding / 3,
+    marginRight: basePadding / 2,
+  },
+  listWrapper: {
+    flexGrow: 1,
+    minHeight: 220,
+  },
+  actionBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: basePadding * 0.7,
+    marginBottom: 6,
+  },
+  actionBtnLeft: {
+    flex: 1,
+    backgroundColor: '#39ff14',
+    borderRadius: baseRadius * 0.85,
+    paddingHorizontal: basePadding * 0.6,
+    paddingVertical: basePadding * 0.45,
+    alignItems: 'center',
+    marginRight: basePadding / 3,
+    ...cardShadow,
+    minHeight: 36,
+    maxHeight: 40,
+  },
+  actionBtnRight: {
+    flex: 1,
+    backgroundColor: '#ffe46b',
+    borderRadius: baseRadius * 0.85,
+    paddingHorizontal: basePadding * 0.6,
+    paddingVertical: basePadding * 0.45,
+    alignItems: 'center',
+    marginLeft: basePadding / 3,
+    ...cardShadow,
+    minHeight: 36,
+    maxHeight: 40,
+  },
+  actionBtnTxtSmall: {
+    color: '#181829',
+    fontWeight: 'bold',
+    fontSize: Math.round(width * 0.039),
+    letterSpacing: 0.2,
+  },
   progressOverlay: {
     position: 'absolute',
     zIndex: 999,

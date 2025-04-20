@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, Image } from 'react-native';
 
 export default function ProductListScreen({
   products,
@@ -45,18 +45,12 @@ export default function ProductListScreen({
     return 0;
   });
 
-  // Responsive width
-  const screenWidth = Dimensions.get('window').width;
-  const itemWidth = Math.max((screenWidth - 40) / 2, 160); // 2 cột, padding 10*2, margin 10*2
-
   // Handler bỏ bán chạy: không cho tick nếu đã có 5 sản phẩm bán chạy
   const handleHotPress = id => {
     const isHot = products.find(p => p.id === id)?.isHot;
     if (isHot) {
-      // Bỏ được, luôn cho phép bỏ
       onToggleHot(id);
     } else {
-      // Thêm mới, chỉ cho nếu < 5 sản phẩm bán chạy
       const numberOfHot = products.filter(p => p.isHot).length;
       if (numberOfHot >= 5) {
         alert('Chỉ cho phép tối đa 5 sản phẩm bán chạy cùng lúc!');
@@ -94,43 +88,56 @@ export default function ProductListScreen({
       <FlatList
         data={displayList}
         keyExtractor={item => item.id + ''}
-        numColumns={2}
-        columnWrapperStyle={{ justifyContent: 'space-between', paddingHorizontal: 10 }}
         renderItem={({ item }) => (
           <TouchableOpacity
             style={[
               styles.item,
-              { width: itemWidth },
               item.isFavorite && styles.favoriteBorder,
               item.isHot && styles.hotBg,
             ]}
             onPress={() => onPressItem(item)}
             activeOpacity={0.82}
           >
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-              <TouchableOpacity onPress={() => onToggleFavorite(item.id)}>
-                <Text style={{ fontSize: 19, marginRight: 4 }}>
-                  {item.isFavorite ? '⭐' : '☆'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleHotPress(item.id)}>
-                <Text style={{ fontSize: 17, marginRight: 4, color: item.isHot ? '#ff6600' : '#ffe46b' }}>
-                  {item.isHot ? '🔥' : '♨️'}
-                </Text>
-              </TouchableOpacity>
-              <Text
-                style={[
-                  styles.name,
-                  item.isHot && { color: '#ff6600' },
-                  { fontSize: 14, flex: 1 },
-                ]}
-                numberOfLines={1}
-              >
-                {item.name}
-              </Text>
+            <View style={styles.rowTop}>
+              {/* Hình ảnh nhỏ ở góc trái */}
+              {item.image ? (
+                <Image
+                  source={{ uri: item.image }}
+                  style={styles.productImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.productImagePlaceholder}>
+                  <Text style={{ color: '#999', fontSize: 12 }}>Ảnh</Text>
+                </View>
+              )}
+              <View style={styles.rowTopRight}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+                  <TouchableOpacity onPress={() => onToggleFavorite(item.id)}>
+                    <Text style={{ fontSize: 19, marginRight: 4 }}>
+                      {item.isFavorite ? '⭐' : '☆'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => handleHotPress(item.id)}>
+                    <Text style={{ fontSize: 17, marginRight: 4, color: item.isHot ? '#ff6600' : '#ffe46b' }}>
+                      {item.isHot ? '🔥' : '♨️'}
+                    </Text>
+                  </TouchableOpacity>
+                  <Text
+                    style={[
+                      styles.name,
+                      item.isHot && { color: '#ff6600' },
+                      { fontSize: 14, flex: 1 },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {item.name}
+                  </Text>
+                </View>
+                <Text style={styles.price} numberOfLines={1}>Giá: {Number(item.price).toLocaleString()} ₫</Text>
+                {item.spec ? <Text style={styles.spec} numberOfLines={1}>Q.cách: {item.spec}</Text> : null}
+              </View>
             </View>
-            <Text style={styles.price} numberOfLines={1}>Giá: {Number(item.price).toLocaleString()} ₫</Text>
-            {item.spec ? <Text style={styles.spec} numberOfLines={1}>Q.cách: {item.spec}</Text> : null}
             <View style={{ flexDirection: 'row', marginTop: 2, flexWrap: 'wrap' }}>
               <TouchableOpacity onPress={() => onEditProduct(item)}>
                 <Text style={styles.actionBtn}>Sửa</Text>
@@ -152,6 +159,8 @@ export default function ProductListScreen({
     </View>
   );
 }
+
+const IMAGE_SIZE = 38;
 
 const styles = StyleSheet.create({
   searchWrap: {
@@ -193,10 +202,34 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.07,
     shadowRadius: 3,
     elevation: 2,
-    marginHorizontal: 0,
+    marginHorizontal: 10,
     minHeight: 92,
-    minWidth: 150,
-    maxWidth: 260,
+    flexDirection: 'column',
+  },
+  rowTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  productImage: {
+    width: IMAGE_SIZE,
+    height: IMAGE_SIZE,
+    borderRadius: 8,
+    marginRight: 9,
+    backgroundColor: '#222',
+  },
+  productImagePlaceholder: {
+    width: IMAGE_SIZE,
+    height: IMAGE_SIZE,
+    borderRadius: 8,
+    marginRight: 9,
+    backgroundColor: '#19192a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  rowTopRight: {
+    flex: 1,
+    flexDirection: 'column',
+    minWidth: 0,
   },
   favoriteBorder: {
     borderWidth: 2,
